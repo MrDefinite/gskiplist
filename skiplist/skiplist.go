@@ -2,8 +2,10 @@ package gskiplist
 
 import (
 	"math/rand"
-	"strconv"
-	log "github.com/sirupsen/logrus"
+	//"strconv"
+	//log "github.com/sirupsen/logrus"
+	"fmt"
+	"time"
 )
 
 const maxNumberOfLevels = 32
@@ -11,20 +13,20 @@ const p = 0.25
 
 type SkipListLevel struct {
 	forward *SkipListNode
-	span    uint32
+	span    int
 }
 
 type SkipListNode struct {
 	Backward *SkipListNode
-	score    float64
+	Score    float64
 	levels   []SkipListLevel
-	obj      string
+	Obj      string
 }
 
 type SkipList struct {
 	head, tail *SkipListNode
 	level      int
-	length     uint32
+	length     int
 }
 
 type RangeSpec struct {
@@ -33,13 +35,14 @@ type RangeSpec struct {
 }
 
 func CreateSkipList() *SkipList {
-	// Creat a dummy node first
-	dNode := SkipListNode{nil, 0, make([]SkipListLevel, maxNumberOfLevels), ""}
+	// Create a dummy node first
+	header := SkipListNode{nil, -1, make([]SkipListLevel, maxNumberOfLevels), ""}
 	for i := 0; i < maxNumberOfLevels; i++ {
-		dNode.levels[i].forward = nil
-		dNode.levels[i].span = 0
+		header.levels[i].forward = nil
+		header.levels[i].span = 0
 	}
-	sl := SkipList{&dNode, nil, 1, 0}
+	header.Backward = nil
+	sl := SkipList{&header, nil, 1, 0}
 	return &sl
 }
 
@@ -54,7 +57,7 @@ func FreeSkipList(sl *SkipList) {
 func Insert(sl *SkipList, score float64, ele string) *SkipListNode {
 	// Cache the node which need to be updated
 	var update [maxNumberOfLevels]*SkipListNode
-	var rank [maxNumberOfLevels]uint32
+	var rank [maxNumberOfLevels]int
 
 	p := sl.head
 	for i := sl.level - 1; i >= 0; i-- {
@@ -65,17 +68,14 @@ func Insert(sl *SkipList, score float64, ele string) *SkipListNode {
 			rank[i] = rank[i+1]
 		}
 
-		currentLevel := p.levels[i]
-		forwardNode := currentLevel.forward
-		for forwardNode != nil && (forwardNode.score < score ||
-			(forwardNode.score == score && forwardNode.obj < ele)) {
+		for p.levels[i].forward != nil && (p.levels[i].forward.Score < score ||
+			(p.levels[i].forward.Score == score && p.levels[i].forward.Obj < ele)) {
+			// How long is the span from the first node to the last in the same layer i
+			rank[i] += p.levels[i].span
 			p = p.levels[i].forward
 		}
+		// Record the node which should connect its layer i to the new node
 		update[i] = p
-	}
-	// p is the place to insert new node, if it is not a duplicated one
-	if p.score == score && p.obj == ele {
-		return p
 	}
 
 	// Insert node now
@@ -89,7 +89,7 @@ func Insert(sl *SkipList, score float64, ele string) *SkipListNode {
 		sl.level = levelForNewNode
 	}
 
-	newNode := SkipListNode{nil, score, []SkipListLevel{}, ele}
+	newNode := SkipListNode{nil, score, make([]SkipListLevel, maxNumberOfLevels), ele}
 	for i := 0; i < levelForNewNode; i++ {
 		newNode.levels[i].forward = update[i].levels[i].forward
 		update[i].levels[i].forward = &newNode
@@ -100,7 +100,7 @@ func Insert(sl *SkipList, score float64, ele string) *SkipListNode {
 
 	// Increment span for untouched levels
 	for i := levelForNewNode; i < sl.level; i++ {
-		update[i].levels[i].span++
+		update[i].levels[i].span += 1
 	}
 
 	if update[0] == sl.head {
@@ -141,14 +141,16 @@ func LastInRange(sl *SkipList, rangeSpec *RangeSpec) *SkipListNode {
 // NOTE: the algorithm is from redis
 func getRandomLevel() int {
 	level := 1
+	rand.Seed(time.Now().UnixNano())
 
-	var factor float64 = p * 0xFFFF
-	for (rand.Int31n(0X7FFFFFFF) & 0XFFFF) < int32(factor) {
-		log.Debugln("Random counted, set level to: " + strconv.Itoa(level))
+	var factor = p * 0xFFFF
+	for rand.Int31n(2147483647)&0XFFFF < int32(factor) {
+		fmt.Printf("Random counted, set level to: %d\n", level)
 		level++
 	}
 
 	if level < maxNumberOfLevels {
+		fmt.Printf("Get final level for new node: %d\n", level)
 		return level
 	}
 	return maxNumberOfLevels
@@ -158,6 +160,30 @@ func searchInsertPos(sl *SkipList, score float64, ele string) *SkipListNode {
 	return nil
 }
 
-func printSkipList(sl *SkipList) {
+// TODO: the last node cannot be printed correctly
+func PrintSkipList(sl *SkipList) {
+	p := sl.head
+	isDummyNode := true
+	for p != nil {
+		if isDummyNode {
+			p = p.levels[0].forward
+			isDummyNode = false
+			continue
+		}
 
+		levels := p.levels
+		isLastNode := levels[0].forward == nil
+		fmt.Printf("Node { ")
+		for j := 0; j < maxNumberOfLevels; j++ {
+			level := levels[j]
+			if (isLastNode && p.Obj != "") || level.forward != nil {
+				fmt.Printf("%g %s, ", p.Score, p.Obj)
+			} else {
+				fmt.Printf("nil, ")
+			}
+		}
+		fmt.Printf("}\n")
+
+		p = p.levels[0].forward
+	}
 }
