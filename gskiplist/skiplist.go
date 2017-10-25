@@ -119,6 +119,58 @@ func Insert(sl *SkipList, score float64, ele string) *SkipListNode {
 }
 
 func Delete(sl *SkipList, score float64, ele string, node *SkipListNode) bool {
+	// Cache the node which need to be updated
+	var update [maxNumberOfLevels]*SkipListNode
+
+	p := sl.head
+	for i := sl.level - 1; i >= 0; i-- {
+		for p.levels[i].forward != nil && (p.levels[i].forward.Score < score ||
+			(p.levels[i].forward.Score == score && p.levels[i].forward.Obj < ele)) {
+			// How long is the span from the first node to the last in the same layer i
+			p = p.levels[i].forward
+		}
+		// Record the node which should connect its layer i to the new node
+		update[i] = p
+	}
+
+	p = p.levels[0].forward
+	// Not found
+	if !(p.Score == score && p.Obj == ele) {
+		return false
+	}
+
+	nextNode := p.levels[0].forward
+
+	// Delete p
+	for i := 0; i < sl.level; i++ {
+		update[i].levels[i].forward = p.levels[i].forward
+		p.levels[i].forward = nil
+		update[i].levels[i].span += p.levels[i].span - 1
+	}
+
+	if isFirstNode(sl, p) && isTailNode(sl, p) {
+		sl.tail = nil
+		sl.level = 1
+	} else if isFirstNode(sl, p) {
+		nextNode.Backward = nil
+	} else if isTailNode(sl, p) {
+		sl.tail = p.Backward
+		p.Backward = nil
+	} else {
+		nextNode.Backward = p.Backward
+	}
+
+	// Update length
+	sl.length -= 1
+
+	// Update level
+	sl.level = 0
+	for i := 0; i < maxNumberOfLevels; i++ {
+		if sl.head.levels[i].forward != nil {
+			sl.level += 1
+		}
+	}
+
 	return true
 }
 
@@ -156,9 +208,17 @@ func getRandomLevel() int {
 	return maxNumberOfLevels
 }
 
-func searchInsertPos(sl *SkipList, score float64, ele string) *SkipListNode {
-	return nil
+func isFirstNode(sl *SkipList, node *SkipListNode) bool {
+	// Doesn't contain dummy node
+	score := sl.head.levels[0].forward.Score
+	obj := sl.head.levels[0].forward.Obj
+	return obj == node.Obj && score == node.Score
 }
+
+func isTailNode(sl *SkipList, node *SkipListNode) bool {
+	return sl.tail.Obj == node.Obj && sl.tail.Score == node.Score
+}
+
 
 // TODO: the last node cannot be printed correctly
 func PrintSkipList(sl *SkipList) {
